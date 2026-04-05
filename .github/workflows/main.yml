@@ -61,7 +61,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
+          # AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
           APP_DATA_PATH: ${{ fromJSON(vars.APP_DATA).dir_path }}/${{ fromJSON(vars.APP_DATA).name }}
           YC_INFRA_BUCKET_NAME: ${{ fromJSON(vars.YC_INFRA_BUCKET).name }}
           TF_BACKEND_S3: ${{ vars.TF_BACKEND_S3 }}
@@ -71,9 +71,9 @@ jobs:
           check_file () {
             local key="$1"
             aws s3api head-object \
-              --bucket "YC_INFRA_BUCKET_NAME" \
+              --bucket "$YC_INFRA_BUCKET_NAME" \
               --key "$key" \
-              --endpoint-url "$TF_BACKEND_S3" --debug
+              --endpoint-url "$TF_BACKEND_S3"
           }
 
           check_file "$APP_DATA_PATH"
@@ -83,12 +83,12 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
+          # AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
           APP_DATA_PATH: ${{ fromJSON(vars.APP_DATA).dir_path }}/${{ fromJSON(vars.APP_DATA).name }}
           YC_INFRA_BUCKET_NAME: ${{ fromJSON(vars.YC_INFRA_BUCKET).name }}
           TF_BACKEND_S3: ${{ vars.TF_BACKEND_S3 }}
         run: |
-          aws s3 cp "s3://YC_INFRA_BUCKET_NAME/$APP_DATA_PATH" \
+          aws s3 cp "s3://$YC_INFRA_BUCKET_NAME/$APP_DATA_PATH" \
             "$APP_DATA_PATH" --endpoint-url="$TF_BACKEND_S3"
 
       # Настройка сборщика для работы с dind-контейнером
