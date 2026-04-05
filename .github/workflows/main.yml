@@ -143,6 +143,8 @@ jobs:
           tags: |
             type=sha,prefix=
             type=ref,event=tag
+          labels: |
+            app=nginx
 
       # Сборка и отправка образа
       - name: Build and push
