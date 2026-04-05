@@ -65,8 +65,7 @@ jobs:
             aws s3api head-object \
               --bucket "YC_INFRA_BUCKET_NAME" \
               --key "$key" \
-              --endpoint-url "$TF_BACKEND_S3" > /dev/null 2>&1 || \
-              { echo "File $key not found. Run the Terraform yc-infra project."; exit 1; }
+              --endpoint-url "$TF_BACKEND_S3"
           }
 
           check_file "$APP_DATA_PATH"
