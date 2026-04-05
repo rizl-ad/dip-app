@@ -53,13 +53,16 @@ jobs:
           GH_TOKEN: ${{ steps.repos_vars_token.outputs.token }}
         run: |
           VAR_APP_DATA=$(gh variable get APP_DATA --repo "rizl-ad/dip-yc")
-          echo "APP_DATA_PATH=$(echo "$VAR_APP_DATA" | jq -r '.dir_path + "/" + .name')" >> $GITHUB_ENV
+          { echo "APP_DATA_PATH<<ROF"; echo $(echo "$VAR_APP_DATA" | jq -r '.dir_path + "/" + .name'); echo "EOF"; } >> $GITHUB_OUTPUT
+          { echo "APP_DATA_PATH<<ROF"; echo $(echo "$VAR_APP_DATA" | jq -r '.dir_path + "/" + .name'); echo "EOF"; } >> $GITHUB_ENV
 
           VAR_TF_BACKEND_S3=$(gh variable get TF_BACKEND_S3 --repo "rizl-ad/dip-yc")
+          echo "TF_BACKEND_S3=$VAR_TF_BACKEND_S3" >> $GITHUB_OUTPUT
           echo "TF_BACKEND_S3=$VAR_TF_BACKEND_S3" >> $GITHUB_ENV
 
           VAR_YC_INFRA_BUCKET=$(gh variable get YC_INFRA_BUCKET --repo "rizl-ad/dip-yc")
-          echo "YC_INFRA_BUCKET_NAME=$(echo "$VAR_YC_INFRA_BUCKET" | jq -r .name)" >> $GITHUB_ENV
+          { echo "YC_INFRA_BUCKET_NAME<<EOF"; echo $(echo "$VAR_YC_INFRA_BUCKET" | jq -r .name); echo "EOF" } >> $GITHUB_OUTPUT
+          { echo "YC_INFRA_BUCKET_NAME<<EOF"; echo $(echo "$VAR_YC_INFRA_BUCKET" | jq -r .name); echo "EOF" } >> $GITHUB_ENV
 
       # VAR_K8S_VERSION=$(gh variable get K8S_VERSION --repo "rizl-ad/dip-k8s")
       # echo "K8S_VERSION=$VAR_K8S_VERSION" >> $GITHUB_ENV
@@ -127,8 +130,9 @@ jobs:
         run: |
           REGISTRY_ID=$(jq -r .registry_id "$APP_DATA_PATH")
           echo "::add-mask::$REGISTRY_ID"
+          echo "IMAGE_PATH=cr.yandex/$REGISTRY_ID/$APP_NAME" >> $GITHUB_OUTPUT
           echo "IMAGE_PATH=cr.yandex/$REGISTRY_ID/$APP_NAME" >> $GITHUB_ENV
-          echo "APP_PORT=$(jq -r .port "$APP_DATA_PATH")" >> $GITHUB_ENV
+          echo "APP_PORT=$(jq -r .port "$APP_DATA_PATH")" >> $GITHUB_OUTPUT
 
       # Подготовка тегов: sha для коммита, v*.*.* для тега
       - name: Extract Docker metadata
