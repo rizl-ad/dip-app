@@ -175,4 +175,3 @@ jobs:
             --set service.targetPort=$APP_PORT \
             --set networkPolicy.ingress.ports.port=$APP_PORT \
             --wait --timeout 5m
-
