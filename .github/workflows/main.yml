@@ -53,9 +53,10 @@ jobs:
       - name: Install AWS CLI
         run: |
           sudo apt-get update && sudo apt-get install -y unzip curl
-          curl "https://amazonaws.com" -o "awscliv2.zip"
+          curl -L "https://amazonaws.com" -o "awscliv2.zip"
           unzip -q awscliv2.zip
           sudo ./aws/install --update
+          aws --version
 
       - name: Check required files
         env:
