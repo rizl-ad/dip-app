@@ -73,7 +73,7 @@ jobs:
             aws s3api head-object \
               --bucket "YC_INFRA_BUCKET_NAME" \
               --key "$key" \
-              --endpoint-url "$TF_BACKEND_S3" --region $AWS_DEFAULT_REGION
+              --endpoint-url "$TF_BACKEND_S3" --region ru-central1
           }
 
           check_file "$APP_DATA_PATH"
