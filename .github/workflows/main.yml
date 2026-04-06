@@ -46,6 +46,9 @@ jobs:
     permissions:
       contents: write
     
+    env:
+      DOCKER_HOST: tcp://localhost:2375
+    
     steps:
       - name: Clone repository on runner
         uses: actions/checkout@v6
