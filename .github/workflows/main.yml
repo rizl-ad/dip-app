@@ -2,21 +2,22 @@ name: Application CI/CD
 
 on:
   push:
-    tags: [ 'v*.*.*' ]
+    branches: [ main ]  # Срабатывает при merge в main
   pull_request:
-    branches: [ main ]
+    branches: [ main ]  # Срабатывает при создании/обновлении PR
+
   workflow_dispatch:
     inputs:
       run_build:
         description: Enter "YES" to run build and push app image
         required: true
         default: 'no'
-      run_deploy:
-        description: Enter "YES" to run deploy image to K8s
-        required: true
-        default: 'no'
+      release_trigger:
+        description: Activate release application trigger
+        type: boolean
+        default: false
   repository_dispatch:
-    types: [ deploy-app ]
+    types: [ build-and-push-app ]
 
 jobs:
   detect-changes:
@@ -39,28 +40,28 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch' && github.event.inputs.run_build == 'YES') ||
       (github.event_name == 'pull_request' && needs.detect-changes.outputs.build == 'true')
-    runs-on: gha-arc-runner-set
+    runs-on: ubuntu-24.04
 
     environment: code_review
 
     permissions:
       contents: write
     
-    env:
-      DOCKER_HOST: tcp://localhost:2375
-    
     steps:
+      - name: Generate GitHub App Token
+        id: main_writer_token
+        uses: tibdex/github-app-token@v2
+        with:
+          app_id: ${{ secrets.MAIN_WRITER_APP_ID }}
+          private_key: ${{ secrets.MAIN_WRITER_APP_PRIVATE_KEY }}
+
       - name: Clone repository on runner
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.main_writer_token.outputs.token }}
+          fetch-depth: 0
 
-      - name: Install AWS CLI
-        run: |
-          sudo apt-get update && sudo apt-get install -y unzip curl
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip awscliv2.zip > /dev/null
-          sudo ./aws/install > /dev/null
-
-      - name: Check required files
+      - name: Check and download required files
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -69,7 +70,6 @@ jobs:
           TF_BACKEND_S3: ${{ vars.TF_BACKEND_S3 }}
         run: |
           set -euo pipefail
-
           check_file () {
             local key="$1"
             aws s3api head-object \
@@ -78,41 +78,9 @@ jobs:
               --endpoint-url "$TF_BACKEND_S3" > /dev/null 2>&1 || \
               { echo "File $key not found. Run the Terraform yc-infra project."; exit 1; }
           }
-
           check_file "$APP_DATA_PATH"
           echo "The required files were found."
-
-      - name: Download required files
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          APP_DATA_PATH: ${{ fromJSON(vars.APP_DATA).dir_path }}/${{ fromJSON(vars.APP_DATA).name }}
-          YC_INFRA_BUCKET_NAME: ${{ fromJSON(vars.YC_INFRA_BUCKET).name }}
-          TF_BACKEND_S3: ${{ vars.TF_BACKEND_S3 }}
-        run: |
-          aws s3 cp "s3://$YC_INFRA_BUCKET_NAME/$APP_DATA_PATH" \
-            "$APP_DATA_PATH" --endpoint-url="$TF_BACKEND_S3"
-
-      # Настройка сборщика для работы с dind-контейнером
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-        with:
-          driver: remote
-          endpoint: tcp://localhost:2375
-
-      - name: Yandex Cloud login
-        uses: yc-actions/yc-cr-login@v3
-        with:
-          yc-sa-json-credentials: ${{ secrets.YC_INFRA_SA_KEY }}
-
-      - name: Create version and push tag
-        id: tag_version
-        uses: anothrNick/github-tag-action@1.75.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEFAULT_BUMP: patch
-          TAG_PREFIX: 'v'
-          INITIAL_VERSION: 1.0.0
+          aws s3 cp "s3://$YC_INFRA_BUCKET_NAME/$APP_DATA_PATH" "$APP_DATA_PATH" --endpoint-url="$TF_BACKEND_S3"
 
       - name: Get app data
         env:
@@ -122,8 +90,31 @@ jobs:
           REGISTRY_ID=$(jq -r .registry_id "$APP_DATA_PATH")
           echo "::add-mask::$REGISTRY_ID"
           echo "IMAGE_PATH=cr.yandex/$REGISTRY_ID/$APP_NAME" >> $GITHUB_ENV
+          APP_PORT=$(jq -r .port "$APP_DATA_PATH")
 
-      # Подготовка тегов: sha для коммита, v*.*.* для тега
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Yandex Cloud login
+        uses: yc-actions/yc-cr-login@v3
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_INFRA_SA_KEY }}  # поправить запись секрета
+
+      - name: Create and push tag
+        if: |
+          (
+            github.event_name == 'workflow_dispatch' &&  github.event.inputs.run_build == 'YES' &&
+            github.event.inputs.release_trigger == 'true'
+          ) ||
+          github.event_name == 'push'
+        id: tag_version
+        uses: anothrNick/github-tag-action@1.75.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch
+          WITH_V: true
+          INITIAL_VERSION: v1.0.0
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v6
@@ -143,45 +134,26 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-  deploy:
-    name: Deploy app image to K8s cluster
-    needs: [ detect-changes, build-and-push ]
-    if: |
-      !cancelled() && !failure() &&
-      needs.detect-changes.result == 'success' &&
-      (
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.run_deploy == 'YES') ||
-        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.build-and-push.result == 'success')
-      )
-    runs-on: gha-arc-runner-set
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Install Helm
-        uses: azure/setup-helm@v5
-
-      - name: Get app data
-        env:
-          APP_NAME: ${{ vars.APP_NAME }}
-          APP_NAMESPACE: ${{ vars.APP_NAMESPACE }}
-          APP_DATA_PATH: ${{ fromJSON(vars.APP_DATA).dir_path }}/${{ fromJSON(vars.APP_DATA).name }}
+      - name: Release application trigger
+        if: steps.tag_version.outputs.outcome == 'success'
         run: |
-          REGISTRY_ID=$(jq -r .registry_id "$APP_DATA_PATH")
-          echo "::add-mask::$REGISTRY_ID"
-          echo "IMAGE_PATH=cr.yandex/$REGISTRY_ID/$APP_NAME" >> $GITHUB_ENV
+          TAG=${{ steps.tag_version.outputs.new_tag }}
 
-          APP_PORT=$(jq -r .port "$APP_DATA_PATH")
+          yq -i ".image.tag = \"$TAG\"" ./charts/diplom-app/values.yaml
+          yq -i ".image.repository = \"$IMAGE_PATH\"" ./charts/diplom-app/values.yaml
+          yq -i ".service.port = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
+          yq -i ".service.targetPort = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
+          yq -i ".networkPolicy.ingress.ports.port = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
 
-      - name: Deploy to K8s via Helm
-        run: |
-          TAG=${GITHUB_REF#refs/tags/}
-          helm upgrade --install test ./charts/$APP_NAME \
-            --namespace $APP_NAMESPACE \
-            --set image.repository=$IMAGE_PATH \
-            --set image.tag=$TAG \
-            --set service.port=$APP_PORT \
-            --set service.targetPort=$APP_PORT \
-            --set networkPolicy.ingress.ports.port=$APP_PORT \
-            --wait --timeout 5m
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add ./charts/diplom-app/values.yaml
+
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: bump version to $TAG [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+          fi
