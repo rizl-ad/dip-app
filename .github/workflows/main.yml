@@ -26,6 +26,9 @@ jobs:
       build: ${{ steps.filter.outputs.build }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -38,8 +41,10 @@ jobs:
     name: Build image and push to registry
     needs: detect-changes
     if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.run_build == 'YES') ||
-      (github.event_name == 'pull_request' && needs.detect-changes.outputs.build == 'true')
+      (github.event_name == 'pull_request' && needs.detect-changes.outputs.build == 'true') ||
+      github.event_name == 'repository_dispatch'
     runs-on: ubuntu-24.04
 
     environment: code_review
@@ -135,7 +140,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Release application trigger
-        if: steps.tag_version.outputs.outcome == 'success'
+        if: steps.tag_version.outcome == 'success'
         run: |
           TAG=${{ steps.tag_version.outputs.new_tag }}
 
