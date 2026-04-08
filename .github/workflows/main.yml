@@ -147,6 +147,8 @@ jobs:
           push: true
           tags: ${{ env.IMAGE_TAGS }}
           labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false
 
       - name: Release application trigger
         if: steps.tag_version.outcome == 'success'

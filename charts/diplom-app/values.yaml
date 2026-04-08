@@ -72,7 +72,8 @@ ingress:
   #       pathType: ImplementationSpecific
   http: #[]
     paths:
-      - path: /app
+      - path: /
+
 networkPolicy:
   enabled: true
   podSelector:
