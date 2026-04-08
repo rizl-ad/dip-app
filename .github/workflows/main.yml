@@ -1,0 +1,173 @@
+name: Application CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+  workflow_dispatch:
+    inputs:
+      run_build:
+        description: Enter "YES" to run build and push app image
+        required: true
+        default: 'no'
+      release_trigger:
+        description: Activate release application trigger
+        type: boolean
+        default: false
+  repository_dispatch:
+    types: [ build-and-push-app ]
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      build: ${{ steps.filter.outputs.build }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            build:
+              - 'app/**'
+              - 'charts/**'
+
+  build-and-push:
+    name: Build image and push to registry
+    needs: detect-changes
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_build == 'YES') ||
+      (github.event_name == 'pull_request' && needs.detect-changes.outputs.build == 'true') ||
+      github.event_name == 'repository_dispatch'
+    runs-on: ubuntu-24.04
+
+    environment: code_review
+
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Generate GitHub App Token
+        id: main_writer_token
+        uses: tibdex/github-app-token@v2
+        with:
+          app_id: ${{ secrets.MAIN_WRITER_APP_ID }}
+          private_key: ${{ secrets.MAIN_WRITER_APP_PRIVATE_KEY }}
+
+      - name: Clone repository on runner
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.main_writer_token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Check and download required files
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          APP_DATA_PATH: ${{ fromJSON(vars.APP_DATA).dir_path }}/${{ fromJSON(vars.APP_DATA).name }}
+          YC_INFRA_BUCKET_NAME: ${{ fromJSON(vars.YC_INFRA_BUCKET).name }}
+          TF_BACKEND_S3: ${{ vars.TF_BACKEND_S3 }}
+        run: |
+          set -euo pipefail
+          check_file () {
+            local key="$1"
+            aws s3api head-object \
+              --bucket "$YC_INFRA_BUCKET_NAME" \
+              --key "$key" \
+              --endpoint-url "$TF_BACKEND_S3" > /dev/null 2>&1 || \
+              { echo "File $key not found. Run the Terraform yc-infra project."; exit 1; }
+          }
+          check_file "$APP_DATA_PATH"
+          echo "The required files were found."
+          aws s3 cp "s3://$YC_INFRA_BUCKET_NAME/$APP_DATA_PATH" "$APP_DATA_PATH" --endpoint-url="$TF_BACKEND_S3"
+
+      - name: Get app data
+        env:
+          APP_DATA_PATH: ${{ fromJSON(vars.APP_DATA).dir_path }}/${{ fromJSON(vars.APP_DATA).name }}
+          APP_NAME: ${{ vars.APP_NAME }}
+        run: |
+          REGISTRY_ID=$(jq -r .registry_id "$APP_DATA_PATH")
+          echo "::add-mask::$REGISTRY_ID"
+          echo "IMAGE_PATH=cr.yandex/$REGISTRY_ID/$APP_NAME" >> $GITHUB_ENV
+          APP_PORT=$(jq -r .port "$APP_DATA_PATH")
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Yandex Cloud login
+        uses: yc-actions/yc-cr-login@v3
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_INFRA_SA_KEY }}
+
+      - name: Create and push tag
+        if: |
+          (
+            github.event_name == 'workflow_dispatch' &&  github.event.inputs.run_build == 'YES' &&
+            github.event.inputs.release_trigger == 'true'
+          ) ||
+          github.event_name == 'push'
+        id: tag_version
+        uses: anothrNick/github-tag-action@1.75.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch
+          WITH_V: true
+          INITIAL_VERSION: v1.0.0
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PATH }}
+          flavor: |
+            latest=false
+          tags: |
+            type=sha,prefix=
+          labels: |
+            app=nginx
+
+      - name: Create image tags
+        run: |
+          TAGS="${{ steps.meta.outputs.tags }}"
+          if [ "${{ steps.tag_version.outcome }}" == "success" ]; then
+            TAGS="$TAGS,${{ env.IMAGE_PATH }}:${{ steps.tag_version.outputs.new_tag }}"
+          fi
+          echo "IMAGE_TAGS=$TAGS" >> $GITHUB_ENV
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: ./app
+          push: true
+          tags: ${{ env.IMAGE_TAGS }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Release application trigger
+        if: steps.tag_version.outcome == 'success'
+        run: |
+          TAG=${{ steps.tag_version.outputs.new_tag }}
+
+          yq -i ".image.tag = \"$TAG\"" ./charts/diplom-app/values.yaml
+          yq -i ".image.repository = \"$IMAGE_PATH\"" ./charts/diplom-app/values.yaml
+          yq -i ".service.port = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
+          yq -i ".service.targetPort = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
+          yq -i ".networkPolicy.ingress.ports.port = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add ./charts/diplom-app/values.yaml
+
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: bump version to $TAG [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+          fi

@@ -1,0 +1,52 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "diplom-app.fullname" . }}
+  labels:
+    {{- include "diplom-app.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    {{- if and .Values.networkPolicy.podSelector .Values.networkPolicy.podSelector.matchLabels }}
+    matchLabels:
+      {{- range $k, $v := .Values.networkPolicy.podSelector.matchLabels }}
+      {{ $k }}: {{ $v | quote }}
+      {{- end }}
+    {{- else }} {}
+    {{- end }}
+  policyTypes:
+    {{- if .Values.networkPolicy.ingress }}
+    - Ingress
+    {{- end }}
+    {{- if .Values.networkPolicy.egress }}
+    - Egress
+    {{- end }}
+  {{- if .Values.networkPolicy.ingress }}
+  ingress:
+    {{- range .Values.networkPolicy.ingress }}
+    - {{- if .from }} from:
+        {{- range .from }}
+        - {{- if .podSelector }} podSelector:
+            matchLabels:
+              {{- range $k, $v := .podSelector.matchLabels }}
+              {{ $k }}: {{ $v | quote }}
+              {{- end }}
+          {{- end }}
+          {{- if .namespaceSelector }} namespaceSelector:
+            matchLabels:
+              {{- range $k, $v := .namespaceSelector.matchLabels }}
+              {{ $k }}: {{ $v | quote }}
+              {{- end }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- if .ports }}
+      ports:
+        {{- range .ports }}
+        - protocol: {{ .protocol | default "TCP" }}
+          port: {{ .port }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}
