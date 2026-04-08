@@ -136,7 +136,7 @@ jobs:
         run: |
           TAGS="${{ steps.meta.outputs.tags }}"
           if [ "${{ steps.tag_version.outcome }}" == "success" ]; then
-            TAGS="$TAGS,${{ env.IMAGE_PATH }}:${{ steps.tag_version.outputs.new_tag }}"
+            TAGS="${{ env.IMAGE_PATH }}:${{ steps.tag_version.outputs.new_tag }},$TAGS"
           fi
           echo "IMAGE_TAGS=$TAGS" >> $GITHUB_ENV
 
