@@ -157,7 +157,7 @@ jobs:
           yq -i ".image.repository = \"$IMAGE_PATH\"" ./charts/diplom-app/values.yaml
           yq -i ".service.port = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
           yq -i ".service.targetPort = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
-          yq -i ".networkPolicy.ingress.ports.port = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
+          yq -i ".networkPolicy.ingress[0].ports[0].port = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -171,3 +171,4 @@ jobs:
             git pull --rebase origin main
             git push origin main
           fi
+
