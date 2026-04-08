@@ -125,18 +125,27 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_PATH }}
+          flavor: |
+            latest=false
           tags: |
             type=sha,prefix=
-            type=ref,event=tag
           labels: |
             app=nginx
+
+      - name: Create image tags
+        run: |
+          TAGS="${{ steps.meta.outputs.tags }}"
+          if [ "${{ steps.tag_version.outcome }}" == "success" ]; then
+            TAGS="$TAGS,${{ env.IMAGE_PATH }}:${{ steps.tag_version.outputs.new_tag }}"
+          fi
+          echo "IMAGE_TAGS=$TAGS" >> $GITHUB_ENV
 
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
           context: ./app
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ env.IMAGE_TAGS }}
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Release application trigger
