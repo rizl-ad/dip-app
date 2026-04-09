@@ -75,7 +75,6 @@ ingress:
   http: #[]
     paths:
       - path: /
-
 networkPolicy:
   enabled: true
   podSelector:
