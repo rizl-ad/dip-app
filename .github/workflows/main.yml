@@ -95,7 +95,8 @@ jobs:
           REGISTRY_ID=$(jq -r .registry_id "$APP_DATA_PATH")
           echo "::add-mask::$REGISTRY_ID"
           echo "IMAGE_PATH=cr.yandex/$REGISTRY_ID/$APP_NAME" >> $GITHUB_ENV
-          APP_PORT=$(jq -r .port "$APP_DATA_PATH")
+          VAR_APP_PORT=$(jq -r .port "$APP_DATA_PATH")
+          echo "APP_PORT=$VAR_APP_PORT" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
