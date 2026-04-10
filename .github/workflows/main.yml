@@ -71,10 +71,10 @@ jobs:
         with:
           dockerfile: ./app/Dockerfile
       
-      - name: Build local image
+      - name: Build test local image
         run: docker build -t test-app ./app
       
-      - name: Test Nginx Config
+      - name: Test Nginx config
         run: docker run --rm test-app nginx -t
       
       - name: Set up Helm
@@ -92,112 +92,122 @@ jobs:
       - name: Run chart-testing (lint)
         run: ct lint --target-branch ${{ github.event.repository.default_branch }} --chart-dirs ./charts --all
 
-      # - name: Check and download required files
-      #   env:
-      #     AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      #     AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      #     APP_DATA_PATH: ${{ fromJSON(vars.APP_DATA).dir_path }}/${{ fromJSON(vars.APP_DATA).name }}
-      #     YC_INFRA_BUCKET_NAME: ${{ fromJSON(vars.YC_INFRA_BUCKET).name }}
-      #     TF_BACKEND_S3: ${{ vars.TF_BACKEND_S3 }}
-      #   run: |
-      #     set -euo pipefail
-      #     check_file () {
-      #       local key="$1"
-      #       aws s3api head-object \
-      #         --bucket "$YC_INFRA_BUCKET_NAME" \
-      #         --key "$key" \
-      #         --endpoint-url "$TF_BACKEND_S3" > /dev/null 2>&1 || \
-      #         { echo "File $key not found. Run the Terraform yc-infra project."; exit 1; }
-      #     }
-      #     check_file "$APP_DATA_PATH"
-      #     echo "The required files were found."
-      #     aws s3 cp "s3://$YC_INFRA_BUCKET_NAME/$APP_DATA_PATH" "$APP_DATA_PATH" --endpoint-url="$TF_BACKEND_S3"
+      - name: Check and download required files
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          APP_DATA_PATH: ${{ fromJSON(vars.APP_DATA).dir_path }}/${{ fromJSON(vars.APP_DATA).name }}
+          YC_INFRA_BUCKET_NAME: ${{ fromJSON(vars.YC_INFRA_BUCKET).name }}
+          TF_BACKEND_S3: ${{ vars.TF_BACKEND_S3 }}
+        run: |
+          set -euo pipefail
+          check_file () {
+            local key="$1"
+            aws s3api head-object \
+              --bucket "$YC_INFRA_BUCKET_NAME" \
+              --key "$key" \
+              --endpoint-url "$TF_BACKEND_S3" > /dev/null 2>&1 || \
+              { echo "File $key not found. Run the Terraform yc-infra project."; exit 1; }
+          }
+          check_file "$APP_DATA_PATH"
+          echo "The required files were found."
+          aws s3 cp "s3://$YC_INFRA_BUCKET_NAME/$APP_DATA_PATH" "$APP_DATA_PATH" --endpoint-url="$TF_BACKEND_S3"
 
-      # - name: Get app data
-      #   env:
-      #     APP_DATA_PATH: ${{ fromJSON(vars.APP_DATA).dir_path }}/${{ fromJSON(vars.APP_DATA).name }}
-      #     APP_NAME: ${{ vars.APP_NAME }}
-      #   run: |
-      #     REGISTRY_ID=$(jq -r .registry_id "$APP_DATA_PATH")
-      #     echo "::add-mask::$REGISTRY_ID"
-      #     echo "IMAGE_PATH=cr.yandex/$REGISTRY_ID/$APP_NAME" >> $GITHUB_ENV
-      #     VAR_APP_PORT=$(jq -r .port "$APP_DATA_PATH")
-      #     echo "APP_PORT=$VAR_APP_PORT" >> $GITHUB_ENV
+      - name: Get app data
+        env:
+          APP_DATA_PATH: ${{ fromJSON(vars.APP_DATA).dir_path }}/${{ fromJSON(vars.APP_DATA).name }}
+          APP_NAME: ${{ vars.APP_NAME }}
+        run: |
+          REGISTRY_ID=$(jq -r .registry_id "$APP_DATA_PATH")
+          echo "::add-mask::$REGISTRY_ID"
+          echo "IMAGE_PATH=cr.yandex/$REGISTRY_ID/$APP_NAME" >> $GITHUB_ENV
+          VAR_APP_PORT=$(jq -r .port "$APP_DATA_PATH")
+          echo "APP_PORT=$VAR_APP_PORT" >> $GITHUB_ENV
 
-      # - name: Set up Docker Buildx
-      #   uses: docker/setup-buildx-action@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
-      # - name: Yandex Cloud login
-      #   uses: yc-actions/yc-cr-login@v3
-      #   with:
-      #     yc-sa-json-credentials: ${{ secrets.YC_INFRA_SA_KEY }}
+      - name: Yandex Cloud login
+        uses: yc-actions/yc-cr-login@v3
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_INFRA_SA_KEY }}
 
-      # - name: Create and push tag
-      #   if: |
-      #     (
-      #       github.event_name == 'workflow_dispatch' &&  github.event.inputs.run_build == 'YES' &&
-      #       github.event.inputs.release_trigger == 'true'
-      #     ) ||
-      #     github.event_name == 'push'
-      #   id: tag_version
-      #   uses: anothrNick/github-tag-action@1.75.0
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #     DEFAULT_BUMP: patch
-      #     WITH_V: true
-      #     INITIAL_VERSION: v1.0.0
+      - name: Create and push tag
+        if: |
+          (
+            github.event_name == 'workflow_dispatch' &&  github.event.inputs.run_build == 'YES' &&
+            github.event.inputs.release_trigger == 'true'
+          ) ||
+          github.event_name == 'push'
+        id: tag_version
+        uses: anothrNick/github-tag-action@1.75.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: patch
+          WITH_V: true
+          INITIAL_VERSION: v1.0.0
 
-      # - name: Extract Docker metadata
-      #   id: meta
-      #   uses: docker/metadata-action@v6
-      #   with:
-      #     images: ${{ env.IMAGE_PATH }}
-      #     flavor: |
-      #       latest=false
-      #     tags: |
-      #       type=sha,prefix=
-      #     labels: |
-      #       app=nginx
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PATH }}
+          flavor: |
+            latest=false
+          tags: |
+            type=sha,prefix=
+          labels: |
+            app=nginx
 
-      # - name: Create image tags
-      #   run: |
-      #     TAGS="${{ steps.meta.outputs.tags }}"
-      #     if [ "${{ steps.tag_version.outcome }}" == "success" ]; then
-      #       TAGS="${{ env.IMAGE_PATH }}:${{ steps.tag_version.outputs.new_tag }},$TAGS"
-      #     fi
-      #     echo "IMAGE_TAGS=$TAGS" >> $GITHUB_ENV
+      - name: Create image tags
+        run: |
+          TAGS="${{ steps.meta.outputs.tags }}"
+          if [ "${{ steps.tag_version.outcome }}" == "success" ]; then
+            TAGS="${{ env.IMAGE_PATH }}:${{ steps.tag_version.outputs.new_tag }},$TAGS"
+          fi
+          echo "IMAGE_TAGS=$TAGS" >> $GITHUB_ENV
 
-      # - name: Build and push
-      #   uses: docker/build-push-action@v7
-      #   with:
-      #     context: ./app
-      #     push: true
-      #     tags: ${{ env.IMAGE_TAGS }}
-      #     labels: ${{ steps.meta.outputs.labels }}
-      #     provenance: false
-      #     sbom: false
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: ./app
+          push: true
+          tags: ${{ env.IMAGE_TAGS }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false
 
-      # - name: Release application trigger
-      #   if: steps.tag_version.outcome == 'success'
-      #   run: |
-      #     TAG=${{ steps.tag_version.outputs.new_tag }}
+      - name: Release application trigger
+        id: release
+        if: steps.tag_version.outcome == 'success'
+        run: |
+          TAG=${{ steps.tag_version.outputs.new_tag }}
 
-      #     yq -i ".image.tag = \"$TAG\"" ./charts/diplom-app/values.yaml
-      #     yq -i ".image.repository = \"$IMAGE_PATH\"" ./charts/diplom-app/values.yaml
-      #     yq -i ".service.port = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
-      #     yq -i ".service.targetPort = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
-      #     yq -i ".networkPolicy.ingress[0].ports[0].port = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
+          yq -i ".image.tag = \"$TAG\"" ./charts/diplom-app/values.yaml
+          yq -i ".image.repository = \"$IMAGE_PATH\"" ./charts/diplom-app/values.yaml
+          yq -i ".service.port = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
+          yq -i ".service.targetPort = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
+          yq -i ".networkPolicy.ingress[0].ports[0].port = \"$APP_PORT\"" ./charts/diplom-app/values.yaml
 
-      #     git config user.name "github-actions[bot]"
-      #     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      #     git add ./charts/diplom-app/values.yaml
+          git add ./charts/diplom-app/values.yaml
 
-      #     if git diff --quiet && git diff --staged --quiet; then
-      #       echo "No changes to commit"
-      #     else
-      #       git commit -m "chore: bump version to $TAG [skip ci]"
-      #       git pull --rebase origin main
-      #       git push origin main
-      #     fi
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: bump version to $TAG [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+          fi
 
+      - name: Merge main into debug
+        if: steps.release.outcome == 'success'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch dev
+          git pull origin dev
+          git merge origin/main --no-ff -m "Auto-merge main into debug"
+          git push origin dev
