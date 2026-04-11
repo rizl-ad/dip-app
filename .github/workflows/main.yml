@@ -207,7 +207,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch dev
-          git pull origin dev
+          git switch debug
+          git pull origin debug
           git merge origin/main --no-ff -m "Auto-merge main into debug"
-          git push origin dev
+          git push origin debug
